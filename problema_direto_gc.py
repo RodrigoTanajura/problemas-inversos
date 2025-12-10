@@ -4,11 +4,10 @@ import matplotlib.pyplot as plt
 # Globais
 h = 0.005
 tc = 0.5
-resolution = 100
 
 t_inicial = 0.0
 t_final = 2.5
-w = 0.005
+w = 0.025
 sigma1 = w
 sigma2 = sigma1
 
@@ -138,8 +137,8 @@ def rk4_step_adjunto(L1, L2, T1, T2, Y1, Y2):
     k41 = dL1(L1_k4, L2_k4, Y1, T1)
     k42 = dL2(L1_k4, L2_k4, Y2, T2)
 
-    L1_np1 = L1 + (h/6.0)*(k11 + 2*k21 + 2*k31 + k41)
-    L2_np1 = L2 + (h/6.0)*(k12 + 2*k22 + 2*k32 + k42)
+    L1_np1 = L1 - (h/6.0)*(k11 + 2*k21 + 2*k31 + k41)
+    L2_np1 = L2 - (h/6.0)*(k12 + 2*k22 + 2*k32 + k42)
 
     return L1_np1, L2_np1
 
@@ -196,6 +195,7 @@ def dDT2(DT1, DT2, T1, T2):
 def dT2_dt(T1, T2):
     return (T1 - T2)/C_de_T2(T2)
 
+# --- Função Auxiliar: Derivada de a(T2) em relação a T2 ---
 def d_C_de_T2(T2):
     term = - (P3 * (T2 - P4))**2
     result = -2 * (((P3**2) * T2) - (P4 * (P3**2)) ) * np.exp(term)
@@ -207,10 +207,7 @@ def beta_k(T, Y, DT, sigma):
     return float(numerador/denominador)
 
 def passo(T1, T2, Y1, Y2, DT1, DT2):
-    """
-    Calcula o beta_k global considerando os dois sensores.
-    Beta = (Soma Numeradores) / (Soma Denominadores)
-    """
+
     # Numerador Global
     res1 = (Y1 - T1) / (sigma1**2)
     res2 = (Y2 - T2) / (sigma2**2)

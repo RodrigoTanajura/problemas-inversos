@@ -1,0 +1,156 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from problema_direto_mcmc import problema_direto, pseudo_dados, u_of_t
+from problema_direto_mcmc import N, w  # w é o desvio padrão do ruído (sigma_dados)
+
+# --- 1. Preparação (Fora do Loop) ---
+
+def precompute_cholesky(times, sigma_step=0.5, length_scale=0.2):
+    """Calcula a matriz L uma única vez."""
+    N = len(times)
+    T_i, T_j = np.meshgrid(times, times)
+    dist_matrix = (T_i - T_j)**2
+    Covariance = sigma_step**2 * np.exp(-dist_matrix / (2 * length_scale**2))
+    epsilon = 1e-8
+    L = np.linalg.cholesky(Covariance + np.eye(N) * epsilon)
+    return L
+
+def propose_u(u_current, L):
+    """Gera candidato usando a matriz pré-calculada."""
+    N = len(u_current)
+    white_noise = np.random.normal(0, 1, size=N)
+    smooth_perturbation = L @ white_noise
+    return u_current + smooth_perturbation
+
+# --- 2. Funções de Probabilidade (Log-Space) ---
+
+def log_likelihood(u, Y1, Y2, sigma_noise):
+    """
+    Calcula o Log da Verossimilhança.
+    L propto exp(-SSE / 2sigma^2)  ->  Log L = -SSE / 2sigma^2
+    """
+    T1, T2 = problema_direto(u)
+    
+    sse_1 = np.sum((T1 - Y1)**2)
+    sse_2 = np.sum((T2 - Y2)**2)
+    
+    # Assumindo que o sigma (w) é o mesmo para ambos sensores
+    log_prob = - (sse_1 + sse_2) / (2 * sigma_noise**2)
+    return log_prob
+
+# --- 3. Metropolis-Hastings ---
+
+def MH(times, Y1, Y2, iterations=1000):
+    # Setup Inicial
+    u = np.zeros(N)
+    sigma_noise = w  # O desvio padrão do ruído dos sensores
+    
+    # Pre-computa a matriz de proposta (Performance!)
+    L_proposal = precompute_cholesky(times, sigma_step=0.3, length_scale=0.25)
+    
+    # Estado Inicial
+    log_curr = log_likelihood(u, Y1, Y2, sigma_noise)
+    
+    # Histórico (Cadeia)
+    chain = []
+    accepted_count = 0
+    
+    print(f"Iniciando MCMC com {iterations} iterações...")
+    
+    for i in range(iterations):
+        # 1. Proposta
+        u_star = propose_u(u, L_proposal)
+        
+        # 2. Calcular Log-Likelihood do Candidato
+        log_star = log_likelihood(u_star, Y1, Y2, sigma_noise)
+        
+        # 3. Razão de Aceitação (Log Space)
+        # alpha = P_star / P_curr  ->  log_alpha = log_star - log_curr
+        log_alpha = log_star - log_curr
+        
+        # 4. Critério de Aceitação
+        # Se log_alpha > 0, exp(log_alpha) > 1 -> Aceita sempre (min(1, ...))
+        # Se log_alpha < 0, Aceita com prob exp(log_alpha)
+        
+        accepted = False
+        if log_alpha > 0:
+            accepted = True
+        else:
+            if np.log(np.random.rand()) < log_alpha:
+                accepted = True
+        
+        # 5. Atualização
+        if accepted:
+            u = u_star
+            log_curr = log_star
+            accepted_count += 1
+        
+        # Salva na cadeia
+        chain.append(u)
+        
+        if i % 100 == 0:
+            print(f"Iter {i}: Log-L={log_curr:.2f} | Aceitação={(accepted_count/(i+1)):.2%}")
+
+    return np.array(chain)
+
+# --- Main ---
+
+if __name__ == "__main__":
+    times, Y1_medido, Y2_medido = pseudo_dados()
+    
+    # Roda MH com mais iterações para ter estatística
+    iteracoes = 5000 # Recomendado 5000+ para convergência do MCMC
+    chain = MH(times, Y1_medido, Y2_medido, iterations=iteracoes)
+    
+    # --- Pós-Processamento ---
+    
+    # 1. Burn-in: Joga fora o começo (enquanto ele procurava a região certa)
+    burn_in = int(iteracoes * 0.3)
+    chain_valid = chain[burn_in:]
+    
+    # 2. Estimativa Final: Média da Cadeia
+    u_estimado = np.mean(chain_valid, axis=0)
+    
+    # Intervalo de Confiança
+    u_lower = np.percentile(chain_valid, 2.5, axis=0)
+    u_upper = np.percentile(chain_valid, 97.5, axis=0)
+    
+    # --- Plots ---
+    # Recalcula as temperaturas finais usando a média encontrada
+    u_real = np.array([u_of_t(t) for t in times])
+    T1_final, T2_final = problema_direto(u_estimado)
+    
+    # Alterado para 3 linhas para acomodar T2 separadamente
+    fig, axs = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+    
+    # --- Plot 1: Sensor 1 (T1) ---
+    axs[0].plot(times, Y1_medido, 'r.', markersize=4, alpha=0.3, label='Dados (Y1)')
+    axs[0].plot(times, T1_final, 'b-', linewidth=2, label='Média MCMC (T1)')
+    axs[0].set_ylabel('T1 (°C)')
+    axs[0].set_title('Ajuste Sensor 1')
+    axs[0].legend(loc='upper right')
+    axs[0].grid(True, linestyle='--', alpha=0.5)
+    
+    # --- Plot 2: Sensor 2 (T2) ---
+    axs[1].plot(times, Y2_medido, 'r.', markersize=4, alpha=0.3, label='Dados (Y2)')
+    axs[1].plot(times, T2_final, 'g-', linewidth=2, label='Média MCMC (T2)')
+    axs[1].set_ylabel('T2 (°C)')
+    axs[1].set_title('Ajuste Sensor 2')
+    axs[1].legend(loc='upper right')
+    axs[1].grid(True, linestyle='--', alpha=0.5)
+    
+    # --- Plot 3: Fonte u(t) com Incerteza ---
+    axs[2].plot(times, u_real, 'k:', linewidth=2.5, label='Real')
+    axs[2].plot(times, u_estimado, 'm-', linewidth=2, label='Média MCMC')
+    
+    # Sombra de incerteza (95%)
+    axs[2].fill_between(times, u_lower, u_upper, color='m', alpha=0.2, label='IC 95%')
+    
+    axs[2].set_xlabel('Tempo (s)')
+    axs[2].set_ylabel('Fonte u(t)')
+    axs[2].set_title('Reconstrução da Fonte de Calor')
+    axs[2].legend(loc='upper right')
+    axs[2].grid(True, linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    plt.show()
