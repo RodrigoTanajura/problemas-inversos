@@ -45,7 +45,7 @@ def MH(times, Y1, Y2, iterations=1000):
     u = np.zeros(N)
     sigma_noise = w  # O desvio padrão do ruído dos sensores
     
-    # Pre-computa a matriz de proposta (Performance!)
+    # Pre-computa a matriz de proposta
     L_proposal = precompute_cholesky(times, sigma_step=0.3, length_scale=0.25)
     
     # Estado Inicial
@@ -89,7 +89,7 @@ def MH(times, Y1, Y2, iterations=1000):
         chain.append(u)
         
         if i % 100 == 0:
-            print(f"Iter {i}: Log-L={log_curr:.2f} | Aceitação={(accepted_count/(i+1)):.2%}")
+            print(f"{i}: L={log_curr:.2f} | Acc={(accepted_count/(i+1)):.2%}")
 
     return np.array(chain)
 
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     times, Y1_medido, Y2_medido = pseudo_dados()
     
     # Roda MH com mais iterações para ter estatística
-    iteracoes = 5000 # Recomendado 5000+ para convergência do MCMC
+    iteracoes = 1000 # Recomendado 5000+ para convergência do MCMC
     chain = MH(times, Y1_medido, Y2_medido, iterations=iteracoes)
     
     # --- Pós-Processamento ---
@@ -120,7 +120,6 @@ if __name__ == "__main__":
     u_real = np.array([u_of_t(t) for t in times])
     T1_final, T2_final = problema_direto(u_estimado)
     
-    # Alterado para 3 linhas para acomodar T2 separadamente
     fig, axs = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
     
     # --- Plot 1: Sensor 1 (T1) ---
