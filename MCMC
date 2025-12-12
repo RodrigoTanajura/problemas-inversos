@@ -1,155 +1,360 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from problema_direto_mcmc import problema_direto, pseudo_dados, u_of_t
-from problema_direto_mcmc import N, w  # w é o desvio padrão do ruído (sigma_dados)
+import time
+from matplotlib.gridspec import GridSpec
+from matplotlib.ticker import PercentFormatter
 
-# --- 1. Preparação (Fora do Loop) ---
+# Importa do arquivo do problema direto
+from problema_direto_mcmc import pseudo_dados, u_of_t, problema_direto_solve
+from problema_direto_mcmc import N, w 
+import warnings
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-def precompute_cholesky(times, sigma_step=0.5, length_scale=0.2):
-    """Calcula a matriz L uma única vez."""
-    N = len(times)
-    T_i, T_j = np.meshgrid(times, times)
-    dist_matrix = (T_i - T_j)**2
-    Covariance = sigma_step**2 * np.exp(-dist_matrix / (2 * length_scale**2))
-    epsilon = 1e-8
-    L = np.linalg.cholesky(Covariance + np.eye(N) * epsilon)
-    return L
+# --- CONFIGURAÇÃO GLOBAL ---
+plt.rcParams.update({
+    "text.usetex": False, 
+    "font.family": "serif",
+    "font.serif": ["DejaVu Serif", "Bitstream Vera Serif", "Computer Modern Roman"],
+    "font.size": 12
+})
 
-def propose_u(u_current, L):
-    """Gera candidato usando a matriz pré-calculada."""
-    N = len(u_current)
-    white_noise = np.random.normal(0, 1, size=N)
-    smooth_perturbation = L @ white_noise
-    return u_current + smooth_perturbation
+# --- FUNÇÃO AUXILIAR: DETECÇÃO AUTOMÁTICA DE BURN-IN ---
+def detectar_burn_in(L_history, window_size=20):
+    # # Atualizado para 10% conforme solicitado
+    # tail_size = max(int(len(L_history) * 0.10), 10)
+    # tail_data = L_history[-tail_size:]
+    # target_mean = np.mean(tail_data)
+    # target_std = np.std(tail_data)
+    # tolerance = 1.0 * target_std 
+    # for i in range(0, len(L_history) - tail_size):
+    #     current_window = L_history[i : i + window_size]
+    #     if len(current_window) < window_size: break
+    #     window_mean = np.mean(current_window)
+    #     if np.abs(window_mean - target_mean) < tolerance: return i 
+    return int(len(L_history) * 0.5)
 
-# --- 2. Funções de Probabilidade (Log-Space) ---
-
-def log_likelihood(u, Y1, Y2, sigma_noise):
+# --- FUNÇÃO NOVA: DIAGNÓSTICO DE GEWEKE ---
+def geweke_diagnostic(chain, first_perc=0.1, last_perc=0.5):
     """
-    Calcula o Log da Verossimilhança.
-    L propto exp(-SSE / 2sigma^2)  ->  Log L = -SSE / 2sigma^2
+    Aplica o teste de Geweke na cadeia JÁ CORTADA (sem burn-in).
+    Retorna o Z-score para cada parâmetro.
     """
-    T1, T2 = problema_direto(u)
+    n = chain.shape[0]
+    n_a = int(n * first_perc)
+    n_b = int(n * last_perc)
     
-    sse_1 = np.sum((T1 - Y1)**2)
-    sse_2 = np.sum((T2 - Y2)**2)
+    if n_a < 10 or n_b < 10:
+        return np.full(chain.shape[1], np.nan)
+
+    part_a = chain[:n_a, :]
+    part_b = chain[-n_b:, :]
     
-    # Assumindo que o sigma (w) é o mesmo para ambos sensores
-    log_prob = - (sse_1 + sse_2) / (2 * sigma_noise**2)
-    return log_prob
+    mean_a = np.mean(part_a, axis=0)
+    mean_b = np.mean(part_b, axis=0)
+    
+    # Variância (Erro Padrão da Média)
+    var_a = np.var(part_a, axis=0) / n_a
+    var_b = np.var(part_b, axis=0) / n_b
+    
+    z_score = (mean_a - mean_b) / np.sqrt(var_a + var_b)
+    return z_score
 
-# --- 3. Metropolis-Hastings ---
+# --- 1. Proposta Conjunta ---
+def propor_estado(u_atual, params_atual, sigma_u, sigma_params):
+    u_novo = u_atual + np.random.normal(0, sigma_u, size=len(u_atual))
+    params_novo = np.array(params_atual) + np.random.normal(0, sigma_params, size=3)
+    return u_novo, params_novo
 
-def MH(times, Y1, Y2, iterations=1000):
-    # Setup Inicial
+# --- 2. Probabilidade Posterior (COM TRUNCAMENTO) ---
+def log_posterior(u, params, Y1, Y2, sigma_noise, gamma, priori_medias, priori_stds, trunc_nsigma):
+    P2, P3, P4 = params
+    
+    # 1. GUARDA DE DOMÍNIO FÍSICO BÁSICO
+    if P2 <= 1e-6 or P3 <= 1e-6 or P4 <= 1e-6:
+        return -np.inf
+    # 2. APLICAÇÃO DA GAUSSIANA TRUNCADA (HARD CONSTRAINTS)
+    for val, mu, sig in zip(params, priori_medias, priori_stds):
+        delta_limit = trunc_nsigma * sig
+        # Se tentar sair da cerca, REJEITA (retorna -inf).
+        if val < (mu - delta_limit) or val > (mu + delta_limit):
+            return -np.inf    
+    # 3. SOLUÇÃO DO PROBLEMA DIRETO
+    try:
+        T1_calc, T2_calc = problema_direto_solve(u, P2, P3, P4)
+    except RuntimeWarning:
+        return -np.inf
+
+    # 4. GUARDA DE ESTABILIDADE NUMÉRICA
+    if np.any(np.isnan(T1_calc)) or np.any(np.isinf(T1_calc)):
+        return -np.inf
+    if np.any(np.isnan(T2_calc)) or np.any(np.isinf(T2_calc)):
+        return -np.inf
+
+    # 5. CÁLCULO PADRÃO
+    min_len = min(len(Y1), len(T1_calc))
+    
+    # Likelihood
+    sse = np.sum((T1_calc[:min_len] - Y1[:min_len])**2) + np.sum((T2_calc[:min_len] - Y2[:min_len])**2)
+    log_lik = - sse / (2 * sigma_noise**2)
+    
+    # Prior u(t): Total Variation
+    derivada = np.diff(u)
+    log_prior_u = - gamma * np.sum(np.abs(derivada))
+    
+    # Prior Parâmetros: Gaussianas (Soft Constraint)
+    log_prior_p = 0
+    for val, mu, sig in zip(params, priori_medias, priori_stds):
+        log_prior_p += -0.5 * ((val - mu) / sig)**2
+        
+    return log_lik + log_prior_u + log_prior_p
+
+# --- 3. MCMC ---
+def MH(times, Y1, Y2, iterations, sigma_step_u, sigma_step_params, gamma, priori_info, trunc_nsigma):
     u = np.zeros(N)
-    sigma_noise = w  # O desvio padrão do ruído dos sensores
+    sigma_noise = w
+    priori_medias, priori_stds = priori_info
+    params = np.array(priori_medias, dtype=float)
     
-    # Pre-computa a matriz de proposta
-    L_proposal = precompute_cholesky(times, sigma_step=0.3, length_scale=0.25)
+    log_curr = log_posterior(u, params, Y1, Y2, sigma_noise, gamma, priori_medias, priori_stds, trunc_nsigma)
     
-    # Estado Inicial
-    log_curr = log_likelihood(u, Y1, Y2, sigma_noise)
-    
-    # Histórico (Cadeia)
-    chain = []
+    chain_u, chain_params = [], []
+    L_history, Acc_history, Iter_history = [], [], []
     accepted_count = 0
     
-    print(f"Iniciando MCMC com {iterations} iterações...")
+    print(f"Iniciando MCMC... Params: Iter={iterations}, Gamma={gamma}, Trunc={trunc_nsigma}s")
     
-    for i in range(iterations):
-        # 1. Proposta
-        u_star = propose_u(u, L_proposal)
-        
-        # 2. Calcular Log-Likelihood do Candidato
-        log_star = log_likelihood(u_star, Y1, Y2, sigma_noise)
-        
-        # 3. Razão de Aceitação (Log Space)
-        # alpha = P_star / P_curr  ->  log_alpha = log_star - log_curr
+    for i in range(iterations + 1):
+        u_star, params_star = propor_estado(u, params, sigma_step_u, sigma_step_params)
+        log_star = log_posterior(u_star, params_star, Y1, Y2, sigma_noise, gamma, priori_medias, priori_stds, trunc_nsigma)
         log_alpha = log_star - log_curr
         
-        # 4. Critério de Aceitação
-        # Se log_alpha > 0, exp(log_alpha) > 1 -> Aceita sempre (min(1, ...))
-        # Se log_alpha < 0, Aceita com prob exp(log_alpha)
-        
-        accepted = False
-        if log_alpha > 0:
-            accepted = True
-        else:
-            if np.log(np.random.rand()) < log_alpha:
-                accepted = True
-        
-        # 5. Atualização
-        if accepted:
-            u = u_star
-            log_curr = log_star
+        if log_alpha > 0 or np.log(np.random.rand()) < log_alpha:
+            u, params, log_curr = u_star, params_star, log_star
             accepted_count += 1
+            
+        chain_u.append(u)
+        chain_params.append(params)
         
-        # Salva na cadeia
-        chain.append(u)
-        
-        if i % 100 == 0:
-            print(f"{i}: L={log_curr:.2f} | Acc={(accepted_count/(i+1)):.2%}")
+        if i % 500 == 0:
+            current_acc = accepted_count / (i + 1)
+            L_history.append(log_curr)
+            Acc_history.append(current_acc)
+            Iter_history.append(i)
+            if i % 10000 == 0: 
+                print(f"Iter {i}: L={log_curr:.2e} | Acc={current_acc:.1%}")
 
-    return np.array(chain)
+    return np.array(chain_u), np.array(chain_params), np.array(L_history), np.array(Acc_history), np.array(Iter_history)
+
+# --- FUNÇÃO: LABELS ---
+def add_bottom_labels(axes):
+    labels = ['(a)', '(b)', '(c)', '(d)']
+    offsets = [-0.15, -0.15, -0.30, -0.075]
+    for i, ax in enumerate(axes):
+        if i < len(labels):
+            ax.text(0.5, offsets[i], labels[i], transform=ax.transAxes,
+                    fontsize=14, fontweight='bold', va='top', ha='center')
 
 # --- Main ---
-
-if __name__ == "__main__":
+def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_MULTIPLIER):
     times, Y1_medido, Y2_medido = pseudo_dados()
     
-    # Roda MH com mais iterações para ter estatística
-    iteracoes = 1000 # Recomendado 5000+ para convergência do MCMC
-    chain = MH(times, Y1_medido, Y2_medido, iterations=iteracoes)
+    start_time = time.time()
+    chain_u, chain_p, L_hist, Acc_hist, Iter_hist = MH(
+        times, Y1_medido, Y2_medido, 
+        iterations=ITERACOES, sigma_step_u=SIGMA_U, sigma_step_params=SIGMA_PARAMS,
+        gamma=GAMMA, priori_info=PRIORI_INFO, trunc_nsigma=TRUNC_NSIGMA
+    )
+    end_time = time.time()
+    exec_time_seconds = end_time - start_time
     
-    # --- Pós-Processamento ---
+    # 1. Burn-in
+    burn_in_L_idx = detectar_burn_in(L_hist)
+    idx_safe = min(burn_in_L_idx, len(Iter_hist) - 1)
+    real_burn_in_idx = Iter_hist[idx_safe]
+    calc_burn_in_ratio = real_burn_in_idx / ITERACOES
     
-    # 1. Burn-in: Joga fora o começo (enquanto ele procurava a região certa)
-    burn_in = int(iteracoes * 0.3)
-    chain_valid = chain[burn_in:]
+    chain_u_valid = chain_u[real_burn_in_idx:]
+    chain_p_valid = chain_p[real_burn_in_idx:]
     
-    # 2. Estimativa Final: Média da Cadeia
-    u_estimado = np.mean(chain_valid, axis=0)
+    # 2. Diagnóstico de Geweke (NOVO)
+    z_scores = geweke_diagnostic(chain_p_valid)
+    max_z = np.max(np.abs(z_scores)) if not np.any(np.isnan(z_scores)) else 99.9
     
-    # Intervalo de Confiança
-    u_lower = np.percentile(chain_valid, 2.5, axis=0)
-    u_upper = np.percentile(chain_valid, 97.5, axis=0)
+    u_estimado = np.mean(chain_u_valid, axis=0)
+    p_estimado_mean = np.mean(chain_p_valid, axis=0) 
     
-    # --- Plots ---
-    # Recalcula as temperaturas finais usando a média encontrada
-    u_real = np.array([u_of_t(t) for t in times])
-    T1_final, T2_final = problema_direto(u_estimado)
+    u_lower = np.percentile(chain_u_valid, 2.5, axis=0)
+    u_upper = np.percentile(chain_u_valid, 97.5, axis=0)
+    L_final_mean = np.mean(L_hist[idx_safe:])
     
-    fig, axs = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+    u_real = np.array([u_of_t(t) for t in times[:-1]])
+    T1_final, T2_final = problema_direto_solve(u_estimado, *p_estimado_mean)
     
-    # --- Plot 1: Sensor 1 (T1) ---
-    axs[0].plot(times, Y1_medido, 'r.', markersize=4, alpha=0.3, label='Dados (Y1)')
-    axs[0].plot(times, T1_final, 'b-', linewidth=2, label='Média MCMC (T1)')
-    axs[0].set_ylabel('T1 (°C)')
-    axs[0].set_title('Ajuste Sensor 1')
-    axs[0].legend(loc='upper right')
-    axs[0].grid(True, linestyle='--', alpha=0.5)
+    # --- PLOTAGEM ---
+    COLOR_T1, COLOR_T2 = '#083464', '#880424'
+    fig = plt.figure(figsize=(14, 11)) 
+    gs = GridSpec(3, 2, figure=fig, width_ratios=[1, 1], hspace=0.35) 
     
-    # --- Plot 2: Sensor 2 (T2) ---
-    axs[1].plot(times, Y2_medido, 'r.', markersize=4, alpha=0.3, label='Dados (Y2)')
-    axs[1].plot(times, T2_final, 'g-', linewidth=2, label='Média MCMC (T2)')
-    axs[1].set_ylabel('T2 (°C)')
-    axs[1].set_title('Ajuste Sensor 2')
-    axs[1].legend(loc='upper right')
-    axs[1].grid(True, linestyle='--', alpha=0.5)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
+    ax3 = fig.add_subplot(gs[2, 0], sharex=ax1)
+    ax4 = fig.add_subplot(gs[0:2, 1]) 
+    ax_text = fig.add_subplot(gs[2, 1])
+    ax_text.axis('off')
     
-    # --- Plot 3: Fonte u(t) com Incerteza ---
-    axs[2].plot(times, u_real, 'k:', linewidth=2.5, label='Real')
-    axs[2].plot(times, u_estimado, 'm-', linewidth=2, label='Média MCMC')
+    ax1.plot(times, Y1_medido, '.', color=COLOR_T1, markersize=4, alpha=0.4, label='Medidas')
+    ax1.plot(times, T1_final, '-', color=COLOR_T1, linewidth=2, label='Estimado')
+    ax1.set_ylabel('T1 (°C)')
+    ax1.legend(loc='upper right', fontsize=12, framealpha=0.9)
+    ax1.grid(True, alpha=0.3)
     
-    # Sombra de incerteza (95%)
-    axs[2].fill_between(times, u_lower, u_upper, color='m', alpha=0.2, label='IC 95%')
+    ax2.plot(times, Y2_medido, '.', color=COLOR_T2, markersize=4, alpha=0.4, label='Medidas')
+    ax2.plot(times, T2_final, '-', color=COLOR_T2, linewidth=2, label='Estimado')
+    ax2.set_ylabel('T2 (°C)')
+    ax2.legend(loc='upper right', fontsize=12, framealpha=0.9)
+    ax2.grid(True, alpha=0.3)
     
-    axs[2].set_xlabel('Tempo (s)')
-    axs[2].set_ylabel('Fonte u(t)')
-    axs[2].set_title('Reconstrução da Fonte de Calor')
-    axs[2].legend(loc='upper right')
-    axs[2].grid(True, linestyle='--', alpha=0.5)
+    ax3.plot(times[:-1], u_real, '-', color='dimgray', linewidth=3.0, label='Exato') 
+    ax3.plot(times[:-1], u_estimado, 'k-', linewidth=1.5, label='Estimado')
+    ax3.fill_between(times[:-1], u_lower, u_upper, color='gray', alpha=0.4, label='IC 95%')
+    ax3.set_ylabel('Fonte u(t)')
     
-    plt.tight_layout()
-    plt.show()
+    ax3.set_xlabel('Tempo (s)', loc='center')
+    ax3.legend(loc='lower right', fontsize=12, framealpha=0.9)
+    ax3.grid(True, alpha=0.3)
+    
+    ax_L, ax_Acc = ax4, ax4.twinx()
+    color_L, color_Acc = 'black', 'gray'
+    
+    L_plot_data = np.abs(L_hist) / 1000.0
+    Iter_plot_data = Iter_hist / 1000.0 
+    
+    lns1 = ax_L.plot(Iter_plot_data, L_plot_data, color=color_L, linewidth=1.5, label='||Log-Posterior||')
+    ax_L.set_ylabel(r'||Log-Posterior|| ($\times 10^3$)', color=color_L)
+    ax_L.set_xlabel(r'Iterações ($\times 10^3$)', loc='right')
+    ax_L.tick_params(axis='y', colors=color_L)
+    
+    lns2 = ax_Acc.plot(Iter_plot_data, Acc_hist, color=color_Acc, linewidth=1.5, label='Taxa de Aceitação')
+    ax_Acc.set_ylabel('Taxa de Aceitação', color=color_Acc)
+    ax_Acc.tick_params(axis='y', colors=color_Acc)
+    ax_Acc.yaxis.set_major_formatter(PercentFormatter(1.0))
+    ax_Acc.set_ylim(0, 1.0)
+    
+    real_burn_in_scaled = real_burn_in_idx / 1000.0
+    line_burnin = ax_L.axvline(x=real_burn_in_scaled, color='k', linestyle='--', alpha=0.5, label='Corte do Burn-in')
+    ax_L.axvspan(0, real_burn_in_scaled, color='gray', alpha=0.15)
+    
+    lns = lns1 + lns2 + [line_burnin]
+    labs = [l.get_label() for l in lns]
+    ax_L.legend(lns, labs, loc='upper right', fontsize=12, framealpha=0.9)
+    ax_L.grid(True, alpha=0.3)
+
+    add_bottom_labels([ax1, ax2, ax3, ax4])
+
+    # --- TABELA ---
+    m, s = divmod(exec_time_seconds, 60)
+    time_str = f"{int(m)}m {int(s)}s"
+    iter_str = f"{ITERACOES/1000:.0f} x10³"
+    burn_perc = int(calc_burn_in_ratio*100)
+    
+    mu_p, sigma_p = PRIORI_INFO
+    
+    trunc_str = f"{TRUNC_NSIGMA} x σ"
+    
+    # Preparando string Geweke
+    geweke_str = f""
+    if max_z < 2.0: geweke_str += "(OK)"
+    else: geweke_str += "(Fail)"
+    
+    dados_input = [
+        ('Gamma', str(GAMMA)),
+        ('RW Passo u(t)', str(SIGMA_U)),
+        ('RW Passo P.', f"{RW_MULTIPLIER} x μ"),
+        ('Iterações', iter_str),
+        ('Burn-in', f'{burn_perc}%'),
+        ('Truncamento', trunc_str),
+        ('Geweke', geweke_str),  # Adicionado
+        ('P2 Prior', f'N({mu_p[0]:.2f}, {sigma_p[0]:.3f})'),
+        ('P3 Prior', f'N({mu_p[1]:.1f}, {sigma_p[1]:.3f})'),
+        ('P4 Prior', f'N({mu_p[2]:.2f}, {sigma_p[2]:.3f})'),
+    ]
+    
+    dados_output = [
+        ('P2 Est.', f'{p_estimado_mean[0]:.3f}'),
+        ('P3 Est.', f'{p_estimado_mean[1]:.3f}'),
+        ('P4 Est.', f'{p_estimado_mean[2]:.3f}'),
+        ('L Final', f'{L_final_mean:.2e}'),
+        ('Tempo', time_str)
+    ]
+    
+    W1, W2 = 13, 16 # Ajustado levemente para caber o texto do Geweke
+    SEP_V = "│"
+    SEP_MID = " ║ "
+    LINE_L = "─" * (W1 + 3 + W2)
+    LINE_R = "─" * (W1 + 3 + W2)
+    
+    def fmt_cell(label, val):
+        return f"{label:>{W1}} {SEP_V} {val:<{W2}}"
+
+    header = f"{'INPUTS':^{len(LINE_L)}}{SEP_MID}{'OUTPUTS':^{len(LINE_R)}}"
+    subhead = f"{fmt_cell('Param.', 'Valor')}{SEP_MID}{fmt_cell('Param.', 'Valor')}"
+    separator = f"{LINE_L}{SEP_MID}{LINE_R}"
+    
+    body_lines = []
+    max_rows = max(len(dados_input), len(dados_output))
+    
+    for i in range(max_rows):
+        if i < len(dados_input):
+            l_lbl, l_val = dados_input[i]
+            left_txt = fmt_cell(l_lbl, l_val)
+        else:
+            left_txt = " " * (W1 + 3 + W2)
+            
+        if i < len(dados_output):
+            r_lbl, r_val = dados_output[i]
+            right_txt = fmt_cell(r_lbl, r_val)
+        else:
+            right_txt = " " * (W1 + 3 + W2)
+            
+        body_lines.append(f"{left_txt}{SEP_MID}{right_txt}")
+        
+    texto_final = f"{header}\n{subhead}\n{separator}\n" + "\n".join(body_lines)
+    
+    ax_text.text(0.5, 0.5, texto_final, 
+                 fontsize=9, 
+                 fontname='DejaVu Sans Mono', 
+                 verticalalignment='center',
+                 horizontalalignment='center',
+                 bbox=dict(boxstyle="round,pad=0.8", facecolor="white", edgecolor="gray", alpha=0.9))
+    
+    plt.subplots_adjust(bottom=0.08, hspace=0.4)
+
+    # Atualizado com a formatação solicitada
+    mu_str = f"{mu_p[0]}-{mu_p[1]}-{mu_p[2]}"
+    sigma_str = f"{sigma_p[0]:.3f}-{sigma_p[1]:.3f}-{sigma_p[2]:.3f}"
+    filename = f"MCMC_iter={int(ITERACOES/1000)}k_gamma={GAMMA}_sigma={SIGMA_U}_mu={mu_str}_dp={sigma_str}_trunc={TRUNC_NSIGMA}sigma.png"
+    
+    plt.savefig(filename, dpi=100, bbox_inches='tight')
+    print(f"\nGráfico salvo como: {filename}")
+    plt.close(fig)
+
+if __name__ == "__main__":
+    priori_medias = [0.25, 15.0, 0.3]
+    # Gaussiana da Prior
+    priori_stds   = [priori_medias[0]*0.02, priori_medias[1]*0.02, priori_medias[2]*0.02]
+    
+    # --- CONFIGURAÇÃO DA BATELADA ---
+    # Estrutura: (Iter, Sigma_U, Sigma_Params, Gamma, Priori_Info, Truncation_Sigmas, Multiplier_RW)
+    
+    TRUNC_DEFAULT = 2.576 # 99% CI
+    lista = []
+
+    # Configuração solicitada
+    mult_1 = 0.001
+    sigma_params_1 = [m * mult_1 for m in priori_medias]
+    lista.append((500_000, 0.0030, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+
+    print(f"Iniciando batelada de {len(lista)} simulações...")
+    for i, params in enumerate(lista):
+        print(f"\n--- Simulação {i+1}/{len(lista)} ---")
+        main(*params)
