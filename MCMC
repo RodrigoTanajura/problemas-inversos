@@ -155,6 +155,7 @@ def add_bottom_labels(axes):
                     fontsize=14, fontweight='bold', va='top', ha='center')
 
 # --- Main ---
+# --- Main ---
 def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_MULTIPLIER):
     times, Y1_medido, Y2_medido = pseudo_dados()
     
@@ -176,12 +177,19 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     chain_u_valid = chain_u[real_burn_in_idx:]
     chain_p_valid = chain_p[real_burn_in_idx:]
     
-    # 2. Diagnóstico de Geweke (NOVO)
+    # 2. Geweke
     z_scores = geweke_diagnostic(chain_p_valid)
     max_z = np.max(np.abs(z_scores)) if not np.any(np.isnan(z_scores)) else 99.9
     
     u_estimado = np.mean(chain_u_valid, axis=0)
     p_estimado_mean = np.mean(chain_p_valid, axis=0) 
+
+    # --- CÁLCULO DO ERRO PERCENTUAL ---
+    # Definindo os valores reais conhecidos para P2, P3, P4
+    P_REAL = np.array([0.25, 15.0, 0.30])
+    
+    # Cálculo do erro percentual absoluto
+    p_errors_perc = np.abs((p_estimado_mean - P_REAL) / P_REAL) * 100
     
     u_lower = np.percentile(chain_u_valid, 2.5, axis=0)
     u_upper = np.percentile(chain_u_valid, 97.5, axis=0)
@@ -193,7 +201,7 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     # --- PLOTAGEM ---
     COLOR_T1, COLOR_T2 = '#083464', '#880424'
     fig = plt.figure(figsize=(14, 11)) 
-    gs = GridSpec(3, 2, figure=fig, width_ratios=[1, 1], hspace=0.35) 
+    gs = GridSpec(3, 2, figure=fig, width_ratios=[1, 1.2], hspace=0.35) 
     
     ax1 = fig.add_subplot(gs[0, 0])
     ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
@@ -231,7 +239,7 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     
     lns1 = ax_L.plot(Iter_plot_data, L_plot_data, color=color_L, linewidth=1.5, label='||Log-Posterior||')
     ax_L.set_ylabel(r'||Log-Posterior|| ($\times 10^3$)', color=color_L)
-    ax_L.set_xlabel(r'Iterações ($\times 10^3$)', loc='right')
+    ax_L.set_xlabel(r'Iterações ($\times 10^3$)', loc='center')
     ax_L.tick_params(axis='y', colors=color_L)
     
     lns2 = ax_Acc.plot(Iter_plot_data, Acc_hist, color=color_Acc, linewidth=1.5, label='Taxa de Aceitação')
@@ -258,13 +266,11 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     burn_perc = int(calc_burn_in_ratio*100)
     
     mu_p, sigma_p = PRIORI_INFO
-    
     trunc_str = f"{TRUNC_NSIGMA} x σ"
     
-    # Preparando string Geweke
-    geweke_str = f""
-    if max_z < 2.0: geweke_str += "(OK)"
-    else: geweke_str += "(Fail)"
+    geweke_str = f"Max |Z|={max_z:.2f}"
+    if max_z < 2.0: geweke_str += " (OK)"
+    else: geweke_str += " (Fail)"
     
     dados_input = [
         ('Gamma', str(GAMMA)),
@@ -273,21 +279,26 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
         ('Iterações', iter_str),
         ('Burn-in', f'{burn_perc}%'),
         ('Truncamento', trunc_str),
-        ('Geweke', geweke_str),  # Adicionado
+        # ('Geweke Diag', geweke_str),
         ('P2 Prior', f'N({mu_p[0]:.2f}, {sigma_p[0]:.3f})'),
         ('P3 Prior', f'N({mu_p[1]:.1f}, {sigma_p[1]:.3f})'),
         ('P4 Prior', f'N({mu_p[2]:.2f}, {sigma_p[2]:.3f})'),
     ]
     
+    # Função auxiliar para formatar valor e erro
+    def fmt_val_err(val, err):
+        return f"{val:.3f} (erro {err:.1f}%)"
+
     dados_output = [
-        ('P2 Est.', f'{p_estimado_mean[0]:.3f}'),
-        ('P3 Est.', f'{p_estimado_mean[1]:.3f}'),
-        ('P4 Est.', f'{p_estimado_mean[2]:.3f}'),
+        ('P2 Est.', fmt_val_err(p_estimado_mean[0], p_errors_perc[0])),
+        ('P3 Est.', fmt_val_err(p_estimado_mean[1], p_errors_perc[1])),
+        ('P4 Est.', fmt_val_err(p_estimado_mean[2], p_errors_perc[2])),
         ('L Final', f'{L_final_mean:.2e}'),
         ('Tempo', time_str)
     ]
     
-    W1, W2 = 13, 16 # Ajustado levemente para caber o texto do Geweke
+    # AUMENTEI W2 PARA ACOMODAR O TEXTO EXTRA
+    W1, W2 = 13, 24
     SEP_V = "│"
     SEP_MID = " ║ "
     LINE_L = "─" * (W1 + 3 + W2)
@@ -329,7 +340,6 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     
     plt.subplots_adjust(bottom=0.08, hspace=0.4)
 
-    # Atualizado com a formatação solicitada
     mu_str = f"{mu_p[0]}-{mu_p[1]}-{mu_p[2]}"
     sigma_str = f"{sigma_p[0]:.3f}-{sigma_p[1]:.3f}-{sigma_p[2]:.3f}"
     filename = f"MCMC_iter={int(ITERACOES/1000)}k_gamma={GAMMA}_sigma={SIGMA_U}_mu={mu_str}_dp={sigma_str}_trunc={TRUNC_NSIGMA}sigma.png"
@@ -337,7 +347,7 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     plt.savefig(filename, dpi=100, bbox_inches='tight')
     print(f"\nGráfico salvo como: {filename}")
     plt.close(fig)
-
+    
 if __name__ == "__main__":
     priori_medias = [0.25, 15.0, 0.3]
     # Gaussiana da Prior
@@ -346,13 +356,18 @@ if __name__ == "__main__":
     # --- CONFIGURAÇÃO DA BATELADA ---
     # Estrutura: (Iter, Sigma_U, Sigma_Params, Gamma, Priori_Info, Truncation_Sigmas, Multiplier_RW)
     
-    TRUNC_DEFAULT = 2.576 # 99% CI
+    TRUNC_DEFAULT = 1.96 # 99% CI
     lista = []
 
     # Configuração solicitada
     mult_1 = 0.001
     sigma_params_1 = [m * mult_1 for m in priori_medias]
-    lista.append((500_000, 0.0030, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    lista.append((1_000, 0.0030, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    # lista.append((100_000, 0.0030, sigma_params_1, 100, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    # lista.append((100_000, 0.0030, sigma_params_1, 200, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    # lista.append((100_000, 0.0020, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    # lista.append((100_000, 0.0010, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+
 
     print(f"Iniciando batelada de {len(lista)} simulações...")
     for i, params in enumerate(lista):
