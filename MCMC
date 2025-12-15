@@ -155,7 +155,6 @@ def add_bottom_labels(axes):
                     fontsize=14, fontweight='bold', va='top', ha='center')
 
 # --- Main ---
-# --- Main ---
 def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_MULTIPLIER):
     times, Y1_medido, Y2_medido = pseudo_dados()
     
@@ -201,7 +200,7 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     # --- PLOTAGEM ---
     COLOR_T1, COLOR_T2 = '#083464', '#880424'
     fig = plt.figure(figsize=(14, 11)) 
-    gs = GridSpec(3, 2, figure=fig, width_ratios=[1, 1.2], hspace=0.35) 
+    gs = GridSpec(3, 2, figure=fig, width_ratios=[1, 1], hspace=0.35) 
     
     ax1 = fig.add_subplot(gs[0, 0])
     ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
