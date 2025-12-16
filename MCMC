@@ -148,7 +148,7 @@ def MH(times, Y1, Y2, iterations, sigma_step_u, sigma_step_params, gamma, priori
 # --- FUNÇÃO: LABELS ---
 def add_bottom_labels(axes):
     labels = ['(a)', '(b)', '(c)', '(d)']
-    offsets = [-0.15, -0.15, -0.30, -0.075]
+    offsets = [-0.25, -0.25, -0.25, -0.10]
     for i, ax in enumerate(axes):
         if i < len(labels):
             ax.text(0.5, offsets[i], labels[i], transform=ax.transAxes,
@@ -212,12 +212,14 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     ax1.plot(times, Y1_medido, '.', color=COLOR_T1, markersize=4, alpha=0.4, label='Medidas')
     ax1.plot(times, T1_final, '-', color=COLOR_T1, linewidth=2, label='Estimado')
     ax1.set_ylabel('T1 (°C)')
+    ax1.set_xlabel('Tempo (s)', loc='center')
     ax1.legend(loc='upper right', fontsize=12, framealpha=0.9)
     ax1.grid(True, alpha=0.3)
     
     ax2.plot(times, Y2_medido, '.', color=COLOR_T2, markersize=4, alpha=0.4, label='Medidas')
     ax2.plot(times, T2_final, '-', color=COLOR_T2, linewidth=2, label='Estimado')
     ax2.set_ylabel('T2 (°C)')
+    ax2.set_xlabel('Tempo (s)', loc='center')
     ax2.legend(loc='upper right', fontsize=12, framealpha=0.9)
     ax2.grid(True, alpha=0.3)
     
@@ -242,7 +244,7 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     ax_L.tick_params(axis='y', colors=color_L)
     
     lns2 = ax_Acc.plot(Iter_plot_data, Acc_hist, color=color_Acc, linewidth=1.5, label='Taxa de Aceitação')
-    ax_Acc.set_ylabel('Taxa de Aceitação', color=color_Acc)
+    ax_Acc.set_ylabel('Taxa de Aceitação')
     ax_Acc.tick_params(axis='y', colors=color_Acc)
     ax_Acc.yaxis.set_major_formatter(PercentFormatter(1.0))
     ax_Acc.set_ylim(0, 1.0)
@@ -279,9 +281,9 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
         ('Burn-in', f'{burn_perc}%'),
         ('Truncamento', trunc_str),
         # ('Geweke Diag', geweke_str),
-        ('P2 Prior', f'N({mu_p[0]:.2f}, {sigma_p[0]:.3f})'),
-        ('P3 Prior', f'N({mu_p[1]:.1f}, {sigma_p[1]:.3f})'),
-        ('P4 Prior', f'N({mu_p[2]:.2f}, {sigma_p[2]:.3f})'),
+        ('P2 Prior', f'N({mu_p[0]:.3f}, {sigma_p[0]:.3f})'),
+        ('P3 Prior', f'N({mu_p[1]:.3f}, {sigma_p[1]:.3f})'),
+        ('P4 Prior', f'N({mu_p[2]:.3f}, {sigma_p[2]:.3f})'),
     ]
     
     # Função auxiliar para formatar valor e erro
@@ -351,7 +353,8 @@ if __name__ == "__main__":
     priori_medias = [0.25, 15.0, 0.3]
     # Gaussiana da Prior
     priori_stds   = [priori_medias[0]*0.02, priori_medias[1]*0.02, priori_medias[2]*0.02]
-    
+
+    priori_medias = [0.25*1.01, 15.0*0.99, 0.3*0.99]
     # --- CONFIGURAÇÃO DA BATELADA ---
     # Estrutura: (Iter, Sigma_U, Sigma_Params, Gamma, Priori_Info, Truncation_Sigmas, Multiplier_RW)
     
@@ -361,7 +364,7 @@ if __name__ == "__main__":
     # Configuração solicitada
     mult_1 = 0.001
     sigma_params_1 = [m * mult_1 for m in priori_medias]
-    lista.append((1_000, 0.0030, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    lista.append((1_000, 0.0020, sigma_params_1, 15, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
     # lista.append((100_000, 0.0030, sigma_params_1, 100, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
     # lista.append((100_000, 0.0030, sigma_params_1, 200, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
     # lista.append((100_000, 0.0020, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
