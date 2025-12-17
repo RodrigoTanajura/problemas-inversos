@@ -168,7 +168,7 @@ def plot_gc_results(times, T1_m, T2_m, u_real, T1_true, T2_true, # <--- Added T_
     lbl_y_pos = -0.25 
 
     # --- Plot T1 (a) ---
-    ax1.plot(times, T1_m, 'x', color=COLOR_T1, markersize=5, alpha=0.5, label='Medidas T1')
+    ax1.plot(times, T1_m, 'x', color=COLOR_T1, markersize=5, alpha=0.7, label='Medidas T1')
     # Adicionado: Curva exata em cinza
     ax1.plot(times, T1_true, '-', color='gray', linewidth=1.5, alpha=0.7, label='Exato T1')
     # Alterado: Estilo para ponto (.)
@@ -181,7 +181,7 @@ def plot_gc_results(times, T1_m, T2_m, u_real, T1_true, T2_true, # <--- Added T_
     ax1.grid(True, alpha=0.3)
 
     # --- Plot T2 (b) ---
-    ax2.plot(times, T2_m, 'x', color=COLOR_T2, markersize=5, alpha=0.5, label='Medidas T2')
+    ax2.plot(times, T2_m, 'x', color=COLOR_T2, markersize=5, alpha=0.7, label='Medidas T2')
     # Adicionado: Curva exata em cinza
     ax2.plot(times, T2_true, '-', color='gray', linewidth=1.5, alpha=0.7, label='Exato T2')
     # Alterado: Estilo para ponto (.)
@@ -244,7 +244,7 @@ def plot_gc_results(times, T1_m, T2_m, u_real, T1_true, T2_true, # <--- Added T_
         ('Tempo (s)', f"{elapsed_time:.2f}") # Movido para Outputs
     ]
     
-    W1, W2 = 14, 14
+    W1, W2 = 13,12
     SEP_V, SEP_MID = "│", "║"
     LINE_L, LINE_R = "─" * (W1 + 3 + W2), "─" * (W1 + 3 + W2)
     

@@ -6,7 +6,7 @@ h = 0.005
 tc = 0.5
 
 t_inicial = 0.0
-t_final = 2.0
+t_final = 2.5
 w = 0.025
 sigma1 = w
 sigma2 = sigma1
