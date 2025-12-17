@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import time
 from matplotlib.gridspec import GridSpec
 from matplotlib.ticker import PercentFormatter
-
+import os
 # Importa do arquivo do problema direto
 from problema_direto_mcmc import pseudo_dados, u_of_t, problema_direto_solve
 from problema_direto_mcmc import N, w 
@@ -20,17 +20,6 @@ plt.rcParams.update({
 
 # --- FUNÇÃO AUXILIAR: DETECÇÃO AUTOMÁTICA DE BURN-IN ---
 def detectar_burn_in(L_history, window_size=20):
-    # # Atualizado para 10% conforme solicitado
-    # tail_size = max(int(len(L_history) * 0.10), 10)
-    # tail_data = L_history[-tail_size:]
-    # target_mean = np.mean(tail_data)
-    # target_std = np.std(tail_data)
-    # tolerance = 1.0 * target_std 
-    # for i in range(0, len(L_history) - tail_size):
-    #     current_window = L_history[i : i + window_size]
-    #     if len(current_window) < window_size: break
-    #     window_mean = np.mean(current_window)
-    #     if np.abs(window_mean - target_mean) < tolerance: return i 
     return int(len(L_history) * 0.5)
 
 # --- FUNÇÃO NOVA: DIAGNÓSTICO DE GEWEKE ---
@@ -145,15 +134,6 @@ def MH(times, Y1, Y2, iterations, sigma_step_u, sigma_step_params, gamma, priori
 
     return np.array(chain_u), np.array(chain_params), np.array(L_history), np.array(Acc_history), np.array(Iter_history)
 
-# --- FUNÇÃO: LABELS ---
-def add_bottom_labels(axes):
-    labels = ['(a)', '(b)', '(c)', '(d)']
-    offsets = [-0.25, -0.25, -0.25, -0.10]
-    for i, ax in enumerate(axes):
-        if i < len(labels):
-            ax.text(0.5, offsets[i], labels[i], transform=ax.transAxes,
-                    fontsize=14, fontweight='bold', va='top', ha='center')
-
 # --- Main ---
 def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_MULTIPLIER):
     times, Y1_medido, Y2_medido = pseudo_dados()
@@ -195,56 +175,78 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     L_final_mean = np.mean(L_hist[idx_safe:])
     
     u_real = np.array([u_of_t(t) for t in times[:-1]])
+    
+    # Solução Estimada
     T1_final, T2_final = problema_direto_solve(u_estimado, *p_estimado_mean)
     
-    # --- PLOTAGEM ---
-    COLOR_T1, COLOR_T2 = '#083464', '#880424'
-    fig = plt.figure(figsize=(14, 11)) 
-    gs = GridSpec(3, 2, figure=fig, width_ratios=[1, 1], hspace=0.35) 
+    # Solução EXATA (com parâmetros reais, sem ruído)
+    T1_exato, T2_exato = problema_direto_solve(u_real, *P_REAL)
     
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
-    ax3 = fig.add_subplot(gs[2, 0], sharex=ax1)
-    ax4 = fig.add_subplot(gs[0:2, 1]) 
-    ax_text = fig.add_subplot(gs[2, 1])
+    # --- PLOTAGEM (LAYOUT NOVO) ---
+    COLOR_T1, COLOR_T2 = '#083464', '#880424'
+    
+    # Aumentando a altura da figura para acomodar melhor o layout vertical
+    fig = plt.figure(figsize=(14, 15)) 
+    
+    # GridSpec: 4 linhas, 2 colunas.
+    # Linhas 0, 1, 2 ocupam as colunas inteiras (:)
+    # Linha 3 divide em esquerda (0) e direita (1)
+    gs = GridSpec(4, 2, figure=fig, hspace=0.35, wspace=0.15, width_ratios=[0.9, 1]) 
+    
+    ax1 = fig.add_subplot(gs[0, :])
+    ax2 = fig.add_subplot(gs[1, :])
+    ax3 = fig.add_subplot(gs[2, :])
+    ax4 = fig.add_subplot(gs[3, 0])
+    ax_text = fig.add_subplot(gs[3, 1])
     ax_text.axis('off')
     
-    ax1.plot(times, Y1_medido, '.', color=COLOR_T1, markersize=4, alpha=0.4, label='Medidas')
-    ax1.plot(times, T1_final, '-', color=COLOR_T1, linewidth=2, label='Estimado')
+    lbl_y_pos = -0.25 # Posição vertical dos labels (a), (b)...
+
+    # --- Plot T1 (a) ---
+    ax1.plot(times, Y1_medido, 'x', color=COLOR_T1, markersize=5, alpha=0.7, label='Medidas T1')
+    ax1.plot(times, T1_exato, '-', color='black', linewidth=1.5, alpha=0.7, label='Exato T1') # Curva Exata
+    ax1.plot(times, T1_final, '.', color=COLOR_T1, markersize=3, label='MCMC Est. T1')
     ax1.set_ylabel('T1 (°C)')
-    ax1.set_xlabel('Tempo (s)', loc='center')
+    ax1.set_xlabel('Tempo (s)')
+    ax1.text(0.5, lbl_y_pos, '(a)', transform=ax1.transAxes, ha='center', va='top', fontweight='bold', fontsize=12)
     ax1.legend(loc='upper right', fontsize=12, framealpha=0.9)
     ax1.grid(True, alpha=0.3)
     
-    ax2.plot(times, Y2_medido, '.', color=COLOR_T2, markersize=4, alpha=0.4, label='Medidas')
-    ax2.plot(times, T2_final, '-', color=COLOR_T2, linewidth=2, label='Estimado')
+    # --- Plot T2 (b) ---
+    ax2.plot(times, Y2_medido, 'x', color=COLOR_T2, markersize=5, alpha=0.7, label='Medidas T2')
+    ax2.plot(times, T2_exato, '-', color='black', linewidth=1.5, alpha=0.7, label='Exato T2') # Curva Exata
+    ax2.plot(times, T2_final, '.', color=COLOR_T2, markersize=3, label='MCMC Est. T2')
     ax2.set_ylabel('T2 (°C)')
-    ax2.set_xlabel('Tempo (s)', loc='center')
+    ax2.set_xlabel('Tempo (s)')
+    ax2.text(0.5, lbl_y_pos, '(b)', transform=ax2.transAxes, ha='center', va='top', fontweight='bold', fontsize=12)
     ax2.legend(loc='upper right', fontsize=12, framealpha=0.9)
     ax2.grid(True, alpha=0.3)
     
-    ax3.plot(times[:-1], u_real, '-', color='dimgray', linewidth=3.0, label='Exato') 
-    ax3.plot(times[:-1], u_estimado, 'k-', linewidth=1.5, label='Estimado')
+    # --- Plot u(t) (c) ---
+    ax3.plot(times[:-1], u_real, '-', color='dimgray', linewidth=3.0, label='Exato u(t)')
+    ax3.plot(times[:-1], u_estimado, 'k-', linewidth=1.5, label='MCMC Est. u(t)')
     ax3.fill_between(times[:-1], u_lower, u_upper, color='gray', alpha=0.4, label='IC 95%')
     ax3.set_ylabel('Fonte u(t)')
-    
-    ax3.set_xlabel('Tempo (s)', loc='center')
+    ax3.set_xlabel('Tempo (s)')
+    ax3.text(0.5, lbl_y_pos, '(c)', transform=ax3.transAxes, ha='center', va='top', fontweight='bold', fontsize=12)
     ax3.legend(loc='lower right', fontsize=12, framealpha=0.9)
     ax3.grid(True, alpha=0.3)
     
+    # --- Plot Trace / Convergence (d) ---
+    # Mantendo a lógica de plotagem do MCMC (Trace plot), mas adaptando ao espaço (d)
     ax_L, ax_Acc = ax4, ax4.twinx()
     color_L, color_Acc = 'black', 'gray'
     
     L_plot_data = np.abs(L_hist) / 1000.0
-    Iter_plot_data = Iter_hist / 1000.0 
+    Iter_plot_data = Iter_hist / 1000.0
     
     lns1 = ax_L.plot(Iter_plot_data, L_plot_data, color=color_L, linewidth=1.5, label='||Log-Posterior||')
     ax_L.set_ylabel(r'||Log-Posterior|| ($\times 10^3$)', color=color_L)
-    ax_L.set_xlabel(r'Iterações ($\times 10^3$)', loc='center')
+    ax_L.set_xlabel(r'Iterações ($\times 10^3$)') # Label do eixo X
     ax_L.tick_params(axis='y', colors=color_L)
     
     lns2 = ax_Acc.plot(Iter_plot_data, Acc_hist, color=color_Acc, linewidth=1.5, label='Taxa de Aceitação')
-    ax_Acc.set_ylabel('Taxa de Aceitação')
+    ax_Acc.set_ylabel('Taxa de Aceitação', color=color_Acc)
     ax_Acc.tick_params(axis='y', colors=color_Acc)
     ax_Acc.yaxis.set_major_formatter(PercentFormatter(1.0))
     ax_Acc.set_ylim(0, 1.0)
@@ -255,14 +257,13 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     
     lns = lns1 + lns2 + [line_burnin]
     labs = [l.get_label() for l in lns]
-    ax_L.legend(lns, labs, loc='upper right', fontsize=12, framealpha=0.9)
+    ax_L.legend(lns, labs, loc='upper right', fontsize=9, framealpha=0.9)
     ax_L.grid(True, alpha=0.3)
-
-    add_bottom_labels([ax1, ax2, ax3, ax4])
+    ax_L.text(0.5, lbl_y_pos, '(d)', transform=ax_L.transAxes, ha='center', va='top', fontweight='bold', fontsize=12)
 
     # --- TABELA ---
-    m, s = divmod(exec_time_seconds, 60)
-    time_str = f"{int(m)}m {int(s)}s"
+    m, s_time = divmod(exec_time_seconds, 60)
+    time_str = f"{int(m)}m {int(s_time)}s"
     iter_str = f"{ITERACOES/1000:.0f} x10³"
     burn_perc = int(calc_burn_in_ratio*100)
     
@@ -275,31 +276,26 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     
     dados_input = [
         ('Gamma', str(GAMMA)),
-        ('RW Passo u(t)', str(SIGMA_U)),
-        ('RW Passo P.', f"{RW_MULTIPLIER} x μ"),
+        ('RW Passo u', str(SIGMA_U)),
+        ('RW Passo P', f"{RW_MULTIPLIER} x μ"),
         ('Iterações', iter_str),
         ('Burn-in', f'{burn_perc}%'),
         ('Truncamento', trunc_str),
         # ('Geweke Diag', geweke_str),
         ('P2 Prior', f'N({mu_p[0]:.3f}, {sigma_p[0]:.3f})'),
-        ('P3 Prior', f'N({mu_p[1]:.3f}, {sigma_p[1]:.3f})'),
+        ('P3 Prior', f'N({mu_p[1]:.2f}, {sigma_p[1]:.3f})'),
         ('P4 Prior', f'N({mu_p[2]:.3f}, {sigma_p[2]:.3f})'),
     ]
     
-    # Função auxiliar para formatar valor e erro
-    def fmt_val_err(val, err):
-        return f"{val:.3f} (erro {err:.1f}%)"
-
     dados_output = [
-        ('P2 Est.', fmt_val_err(p_estimado_mean[0], p_errors_perc[0])),
-        ('P3 Est.', fmt_val_err(p_estimado_mean[1], p_errors_perc[1])),
-        ('P4 Est.', fmt_val_err(p_estimado_mean[2], p_errors_perc[2])),
+        ('P2 Est.', f"{p_estimado_mean[0]:.3f} (erro {p_errors_perc[0]:.1f}%)"),
+        ('P3 Est.', f"{p_estimado_mean[1]:.2f} (erro {p_errors_perc[1]:.1f}%)"),
+        ('P4 Est.', f"{p_estimado_mean[2]:.3f} (erro {p_errors_perc[2]:.1f}%)"),
         ('L Final', f'{L_final_mean:.2e}'),
         ('Tempo', time_str)
     ]
     
-    # AUMENTEI W2 PARA ACOMODAR O TEXTO EXTRA
-    W1, W2 = 13, 24
+    W1, W2 = 11,17
     SEP_V = "│"
     SEP_MID = " ║ "
     LINE_L = "─" * (W1 + 3 + W2)
@@ -332,18 +328,23 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
         
     texto_final = f"{header}\n{subhead}\n{separator}\n" + "\n".join(body_lines)
     
+    # Configuração da caixa de texto estilo "TIGHT LAYOUT"
     ax_text.text(0.5, 0.5, texto_final, 
-                 fontsize=9, 
+                 fontsize=11, 
                  fontname='DejaVu Sans Mono', 
                  verticalalignment='center',
                  horizontalalignment='center',
-                 bbox=dict(boxstyle="round,pad=0.8", facecolor="white", edgecolor="gray", alpha=0.9))
+                 bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="gray", alpha=0.9))
     
-    plt.subplots_adjust(bottom=0.08, hspace=0.4)
+    # Ajuste de margens reduzidas
+    plt.subplots_adjust(bottom=0.06, top=0.97, left=0.08, right=0.97)
 
     mu_str = f"{mu_p[0]}-{mu_p[1]}-{mu_p[2]}"
-    sigma_str = f"{sigma_p[0]:.3f}-{sigma_p[1]:.3f}-{sigma_p[2]:.3f}"
+    sigma_str = f"{sigma_p[0]:.3f}-{sigma_p[1]:.3f}-{sigma_p[2]:.3f}"    
+    output_folder = "mc"
+    os.makedirs(output_folder, exist_ok=True)
     filename = f"MCMC_iter={int(ITERACOES/1000)}k_gamma={GAMMA}_sigma={SIGMA_U}_mu={mu_str}_dp={sigma_str}_trunc={TRUNC_NSIGMA}sigma.png"
+    filename = os.path.join(output_folder, filename)
     
     plt.savefig(filename, dpi=100, bbox_inches='tight')
     print(f"\nGráfico salvo como: {filename}")
@@ -351,24 +352,22 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
     
 if __name__ == "__main__":
     priori_medias = [0.25, 15.0, 0.3]
-    # Gaussiana da Prior
     priori_stds   = [priori_medias[0]*0.02, priori_medias[1]*0.02, priori_medias[2]*0.02]
 
-    priori_medias = [0.25*1.01, 15.0*0.99, 0.3*0.99]
-    # --- CONFIGURAÇÃO DA BATELADA ---
-    # Estrutura: (Iter, Sigma_U, Sigma_Params, Gamma, Priori_Info, Truncation_Sigmas, Multiplier_RW)
-    
-    TRUNC_DEFAULT = 1.96 # 99% CI
+    TRUNC_DEFAULT = 1.96 # 95% CI
     lista = []
 
-    # Configuração solicitada
     mult_1 = 0.001
     sigma_params_1 = [m * mult_1 for m in priori_medias]
-    lista.append((1_000, 0.0020, sigma_params_1, 15, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
-    # lista.append((100_000, 0.0030, sigma_params_1, 100, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
-    # lista.append((100_000, 0.0030, sigma_params_1, 200, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
-    # lista.append((100_000, 0.0020, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
-    # lista.append((100_000, 0.0010, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    lista.append((100_000, 0.003, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    lista.append((100_000, 0.003, sigma_params_1, 100, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    lista.append((100_000, 0.002, sigma_params_1, 50, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+    lista.append((300_000, 0.002, sigma_params_1, 15, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+
+    priori_medias = [0.25*1.01, 15.0*0.99, 0.3*0.99]
+    lista.append((300_000, 0.002, sigma_params_1, 15, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
+
+
 
 
     print(f"Iniciando batelada de {len(lista)} simulações...")

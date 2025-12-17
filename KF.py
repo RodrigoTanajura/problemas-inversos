@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import os
 
-# --- Globals and Constants ---
+# --- Globals and Constantes ---
 h = 0.005
 tc = 0.5
 t_inicial = 0.0
@@ -72,9 +72,9 @@ def get_jacobian_F(x_est, dt, P2, P3, P4):
     F[1, 1] = 1.0 + dt * deriv_inner
     return F
 
-def run_ekf(times, T1_meas, T2_meas, Q_diag, R_sigma):
+def run_ekf(times, T1_meas, T2_meas, Q_diag, R_sigma, u_0):
     n_steps = len(times)
-    x = np.array([[1.0], [1.0], [0.0]]) 
+    x = np.array([[1.0], [1.0], [u_0]]) 
     P = np.diag([0.01, 0.01, 1.0])      
     H = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]) 
     
@@ -105,7 +105,7 @@ def run_ekf(times, T1_meas, T2_meas, Q_diag, R_sigma):
 
     return np.array(x_history), np.array(P_history), np.array(y_history)
 
-# --- Main Plotting Function (Updated Labels) ---
+# --- Main Plotting Function (TIGHT LAYOUT) ---
 def plot_ekf_results(times, T1_m, T2_m, u_real, T1_true, T2_true, 
                      x_hist, P_hist, y_hist, Q_diag, R_sigma, filename_suffix=""):
     
@@ -122,109 +122,76 @@ def plot_ekf_results(times, T1_m, T2_m, u_real, T1_true, T2_true,
 
     COLOR_T1, COLOR_T2 = '#083464', '#880424'
     
-    fig = plt.figure(figsize=(14, 11))
-    # Increased hspace to 0.5 to allow room for the (a), (b)... labels below the X label
-    gs = GridSpec(3, 2, figure=fig, width_ratios=[1, 1], hspace=0.35) 
+    # Reduced height slightly to tighten vertical space
+    fig = plt.figure(figsize=(14, 15))
     
-    ax1 = fig.add_subplot(gs[0, 0])
-    ax2 = fig.add_subplot(gs[1, 0])
-    ax3 = fig.add_subplot(gs[2, 0])
-    ax4 = fig.add_subplot(gs[0:2, 1])
-    ax_text = fig.add_subplot(gs[2, 1])
+    # REDUCED hspace and wspace for tighter packing
+    gs = GridSpec(4, 2, figure=fig, hspace=0.35, wspace=0.15, width_ratios=[1, 1]) 
+    
+    ax1 = fig.add_subplot(gs[0, :])
+    ax2 = fig.add_subplot(gs[1, :])
+    ax3 = fig.add_subplot(gs[2, :])
+    ax4 = fig.add_subplot(gs[3, 0])
+    ax_text = fig.add_subplot(gs[3, 1])
     ax_text.axis('off')
 
-    # Shared parameters for text positioning
-    # y = -0.35 in transAxes puts it below the x-label (which is usually at ~ -0.15)
-    lbl_y_pos = -0.20 
+    lbl_y_pos = -0.25 
 
     # --- Plot T1 (a) ---
-    ax1.plot(times, T1_m, 'x', color=COLOR_T1, markersize=5, alpha=0.3, label='Medidas T1')
+    ax1.plot(times, T1_m, 'x', color=COLOR_T1, markersize=5, alpha=0.7, label='Medidas T1')
     ax1.plot(times, T1_true, '-', color='black', linewidth=1.5, alpha=0.7, label='Exato T1')
     ax1.plot(times, T1_est, '.', color=COLOR_T1, markersize=3, label='EKF Est. T1')
-    
     ax1.set_ylabel('T1 (°C)')
     ax1.set_xlabel('Tempo (s)')
-    # Label (a) centered below
-    ax1.text(0.5, lbl_y_pos, '(a)', transform=ax1.transAxes, 
-             ha='center', va='top', fontweight='bold', fontsize=12)
-    
-    ax1.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax1.text(0.5, lbl_y_pos, '(a)', transform=ax1.transAxes, ha='center', va='top', fontweight='bold', fontsize=12)
+    ax1.legend(loc='upper right', fontsize=12, framealpha=0.9)
     ax1.grid(True, alpha=0.3)
 
     # --- Plot T2 (b) ---
-    ax2.plot(times, T2_m, 'x', color=COLOR_T2, markersize=5, alpha=0.3, label='Medidas T2')
+    ax2.plot(times, T2_m, 'x', color=COLOR_T2, markersize=5, alpha=0.7, label='Medidas T2')
     ax2.plot(times, T2_true, '-', color='black', linewidth=1.5, alpha=0.7, label='Exato T2')
     ax2.plot(times, T2_est, '.', color=COLOR_T2, markersize=3, label='EKF Est. T2')
-    
     ax2.set_ylabel('T2 (°C)')
     ax2.set_xlabel('Tempo (s)')
-    # Label (b) centered below
-    ax2.text(0.5, lbl_y_pos, '(b)', transform=ax2.transAxes, 
-             ha='center', va='top', fontweight='bold', fontsize=12)
-    
-    ax2.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax2.text(0.5, lbl_y_pos, '(b)', transform=ax2.transAxes, ha='center', va='top', fontweight='bold', fontsize=12)
+    ax2.legend(loc='upper right', fontsize=12, framealpha=0.9)
     ax2.grid(True, alpha=0.3)
 
     # --- Plot u(t) (c) ---
-    ax3.plot(times, u_real, '-', color='dimgray', linewidth=3.0, label='Real u(t)')
+    ax3.plot(times, u_real, '-', color='dimgray', linewidth=3.0, label='Exato u(t)')
     ax3.plot(times, u_est, 'k-', linewidth=1.5, label='EKF Est. u(t)')
     ax3.fill_between(times, u_lower, u_upper, color='gray', alpha=0.4, label='IC 95%')
-    
     ax3.set_ylabel('Fonte u(t)')
     ax3.set_xlabel('Tempo (s)')
-    # Label (c) centered below
-    ax3.text(0.5, lbl_y_pos, '(c)', transform=ax3.transAxes, 
-             ha='center', va='top', fontweight='bold', fontsize=12)
-    
-    ax3.legend(loc='lower right', fontsize=10, framealpha=0.9)
+    ax3.text(0.5, lbl_y_pos, '(c)', transform=ax3.transAxes, ha='center', va='top', fontweight='bold', fontsize=12)
+    ax3.legend(loc='lower right', fontsize=12, framealpha=0.9)
     ax3.grid(True, alpha=0.3)
     ax3.set_ylim(min(u_real)*1.5, max(u_real)+1.0)
 
     # --- Plot Innovations (d) ---
     y_scaled = y_hist * 1000
     R_scaled = R_sigma * 1000
-    
-    ax4.set_title("Histórico de Inovações (Medida - Predição)")
-    ax4.plot(times, y_scaled[:, 0], color=COLOR_T1, alpha=0.6, linewidth=1, label='Inovação T1')
-    ax4.plot(times, y_scaled[:, 1], color=COLOR_T2, alpha=0.6, linewidth=1, label='Inovação T2')
-    
-    ax4.axhline(0, color='k', linestyle='--', linewidth=1, alpha=0.5)
-    ax4.axhline(2*R_scaled, color='gray', linestyle=':', linewidth=1, alpha=0.5, label='±2σ Ruído Esp.')
-    ax4.axhline(-2*R_scaled, color='gray', linestyle=':', linewidth=1, alpha=0.5)
-    
+    ax4.set_title("Histórico de Resíduos")
+    ax4.plot(times, y_scaled[:, 0], color=COLOR_T1, alpha=0.6, linewidth=1, label='Resíduo T1')
+    ax4.plot(times, y_scaled[:, 1], color=COLOR_T2, alpha=0.6, linewidth=1, label='Resíduo T2')
+    ax4.axhline(0, color='k', linestyle='--', linewidth=1, alpha=1)
+    ax4.axhline(2*R_scaled, color='k', linestyle=':', linewidth=1, label='±2σ Ruído')
+    ax4.axhline(-2*R_scaled, color='k', linestyle=':', linewidth=1)
     ax4.set_ylabel(r'Residual ($\times 10^{-3}$ °C)') 
     ax4.set_xlabel('Tempo (s)')
-    # Label (d) centered below. Slightly adjusted y if needed due to layout, but -0.15 is relative to ax4
-    # Since ax4 is taller (spans 2 rows), -0.15 might look different. 
-    # Let's align it visually with the others (approx). -0.15 is safer here as the plot is taller.
-    # Actually, to be consistent with "below the legend", let's use a specific offset.
-    ax4.text(0.5, -0.10, '(d)', transform=ax4.transAxes, 
-             ha='center', va='top', fontweight='bold', fontsize=12)
-    
-    ax4.legend(loc='upper right', fontsize=10, framealpha=0.9)
+    ax4.text(0.5, lbl_y_pos, '(d)', transform=ax4.transAxes, ha='center', va='top', fontweight='bold', fontsize=12)
+    ax4.legend(loc='upper right', fontsize=9, framealpha=0.9)
     ax4.grid(True, alpha=0.3)
 
     # --- TABELA ---
     q_t_str = f"{Q_diag[0]:.1e}"
     q_u_str = f"{Q_diag[2]:.1e}"
     r_str = f"{R_sigma:.3f}"
-
-    dados_input = [
-        ('Q(T1,T2) Diag', q_t_str),
-        ('Q(u) Diag', q_u_str),
-        ('R Sigma (W)', r_str),
-        ('Passo', f"{h} s"),
-    ]
+    dados_input = [('Q(T1,T2) Diag', q_t_str), ('Q(u) Diag', q_u_str), ('R Sigma (W)', r_str), ('Passo', f"{h} s")]
+    dados_output = [('RMSE T1', f"{rmse_T1:.4f} °C"), ('RMSE T2', f"{rmse_T2:.4f} °C"), ('Est. u(t<tc)', f"{np.mean(u_est[times<tc]):.3f}")]
     
-    dados_output = [
-        ('RMSE T1', f"{rmse_T1:.4f} °C"),
-        ('RMSE T2', f"{rmse_T2:.4f} °C"),
-        ('Final u_std', f"{u_std[-1]:.4f}"),
-        ('Est. u(t<tc)', f"{np.mean(u_est[times<tc]):.3f}"),
-    ]
-    
-    W1, W2 = 13, 22
-    SEP_V, SEP_MID = "│", " ║ "
+    W1, W2 = 13, 13
+    SEP_V, SEP_MID = "│", "║"
     LINE_L, LINE_R = "─" * (W1 + 3 + W2), "─" * (W1 + 3 + W2)
     
     def fmt_cell(label, val): return f"{label:>{W1}} {SEP_V} {val:<{W2}}"
@@ -235,7 +202,6 @@ def plot_ekf_results(times, T1_m, T2_m, u_real, T1_true, T2_true,
     
     body_lines = []
     max_rows = max(len(dados_input), len(dados_output))
-    
     for i in range(max_rows):
         left_txt = fmt_cell(*dados_input[i]) if i < len(dados_input) else " " * (W1 + 3 + W2)
         right_txt = fmt_cell(*dados_output[i]) if i < len(dados_output) else " " * (W1 + 3 + W2)
@@ -243,14 +209,17 @@ def plot_ekf_results(times, T1_m, T2_m, u_real, T1_true, T2_true,
         
     texto_final = f"{header}\n{subhead}\n{separator}\n" + "\n".join(body_lines)
     
-    ax_text.text(0.5, 0.5, texto_final, fontsize=9, fontname='DejaVu Sans Mono', 
+    # --- REDUCED PAD to 0.4 for tighter box ---
+    ax_text.text(0.5, 0.5, texto_final, fontsize=12, fontname='DejaVu Sans Mono', 
                  verticalalignment='center', horizontalalignment='center',
-                 bbox=dict(boxstyle="round,pad=0.8", facecolor="white", edgecolor="gray", alpha=0.9))
+                 bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="gray", alpha=0.9))
     
-    plt.subplots_adjust(bottom=0.08, hspace=0.55, wspace=0.15)
+    # --- REDUCED MARGINS for tighter layout ---
+    plt.subplots_adjust(bottom=0.06, top=0.97, left=0.08, right=0.97)
+    
     output_folder = "kalman"
     os.makedirs(output_folder, exist_ok=True)
-    filename = os.path.join(output_folder, f"EKF_Styled_{filename_suffix}.png")
+    filename = os.path.join(output_folder, f"EKF_{filename_suffix}.png")
     plt.savefig(filename, dpi=100, bbox_inches='tight')
     print(f"Gráfico salvo: {filename}")
     plt.close(fig)
@@ -258,15 +227,24 @@ def plot_ekf_results(times, T1_m, T2_m, u_real, T1_true, T2_true,
 if __name__ == "__main__":
     print("Gerando dados Exatos + Ruidosos...")
     times, T1_m, T2_m, u_real, T1_true, T2_true = pseudo_dados()
-    
-    q_u_tune = 2.5e-2
-    Q_diag_current = [1e-4, 1e-4, q_u_tune]
-    
-    filename_suffix = f"_Qu={q_u_tune:.1e}_R={w_real_noise:.3f}"
-    
-    print(f"Rodando EKF...")
-    x_hist, P_hist, y_hist = run_ekf(times, T1_m, T2_m, Q_diag_current, w_real_noise)
-    
-    plot_ekf_results(times, T1_m, T2_m, u_real, T1_true, T2_true, 
-                     x_hist, P_hist, y_hist, Q_diag_current, w_real_noise, 
-                     filename_suffix=filename_suffix)
+    lista = [] #qu, qt, u_0
+
+    # lista.append([2.5e-2, 1.0e-4,  0.0])
+    # lista.append([1.0e-3, 1.0e-6,  0.0])
+
+    lista.append([5.0e-3, 1.0e-5, -0.0])
+    # lista.append([1.0e-4, 1.0e-7, -3.0])
+
+    for i in lista:
+        q_u_tune = i[0]
+        qt = i[1]
+        Q_diag_current = [qt, qt, q_u_tune]
+        
+        filename_suffix = f"_Ui={i[2]}_Qt={qt:.1e}_Qu={q_u_tune:.1e}_R={w_real_noise:.3f}"
+
+        print(f"Rodando EKF...")
+        x_hist, P_hist, y_hist = run_ekf(times, T1_m, T2_m, Q_diag_current, w_real_noise, i[2])
+        
+        plot_ekf_results(times, T1_m, T2_m, u_real, T1_true, T2_true, 
+                        x_hist, P_hist, y_hist, Q_diag_current, w_real_noise, 
+                        filename_suffix=filename_suffix)
