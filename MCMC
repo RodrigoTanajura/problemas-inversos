@@ -305,7 +305,7 @@ def main(ITERACOES, SIGMA_U, SIGMA_PARAMS, GAMMA, PRIORI_INFO, TRUNC_NSIGMA, RW_
         return f"{label:>{W1}} {SEP_V} {val:<{W2}}"
 
     header = f"{'INPUTS':^{len(LINE_L)}}{SEP_MID}{'OUTPUTS':^{len(LINE_R)}}"
-    subhead = f"{fmt_cell('Param.', 'Valor')}{SEP_MID}{fmt_cell('Param.', 'Valor')}"
+    subhead = f"{fmt_cell('Param.', 'Valor')}{SEP_MID}{fmt_cell('Métrica.', 'Valor')}"
     separator = f"{LINE_L}{SEP_MID}{LINE_R}"
     
     body_lines = []
@@ -366,9 +366,6 @@ if __name__ == "__main__":
 
     priori_medias = [0.25*1.01, 15.0*0.99, 0.3*0.99]
     lista.append((300_000, 0.002, sigma_params_1, 15, (priori_medias, priori_stds), TRUNC_DEFAULT, mult_1))
-
-
-
 
     print(f"Iniciando batelada de {len(lista)} simulações...")
     for i, params in enumerate(lista):

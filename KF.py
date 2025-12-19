@@ -196,7 +196,7 @@ def plot_ekf_results(times, T1_m, T2_m, u_real, T1_true, T2_true,
     
     def fmt_cell(label, val): return f"{label:>{W1}} {SEP_V} {val:<{W2}}"
 
-    header = f"{'EKF INPUTS':^{len(LINE_L)}}{SEP_MID}{'EKF OUTPUTS':^{len(LINE_R)}}"
+    header = f"{'INPUTS':^{len(LINE_L)}}{SEP_MID}{'OUTPUTS':^{len(LINE_R)}}"
     subhead = f"{fmt_cell('Parâmetro', 'Valor')}{SEP_MID}{fmt_cell('Métrica', 'Valor')}"
     separator = f"{LINE_L}{SEP_MID}{LINE_R}"
     
